@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Smart Grocery Checkout</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #222; }
+
+  header {
+    background: #1a73e8; color: white; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 1.3rem; }
+  header span { font-size: 0.85rem; opacity: 0.85; }
+
+  .container { display: flex; gap: 16px; padding: 16px; height: calc(100vh - 56px); }
+
+  /* Camera feed */
+  .feed-panel { flex: 1.4; background: #000; border-radius: 10px; overflow: hidden;
+                display: flex; align-items: center; justify-content: center; }
+  .feed-panel img { width: 100%; height: 100%; object-fit: contain; }
+
+  /* Cart panel */
+  .cart-panel { flex: 1; background: white; border-radius: 10px;
+                display: flex; flex-direction: column; padding: 16px; gap: 12px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+
+  .cart-panel h2 { font-size: 1.1rem; color: #1a73e8; border-bottom: 2px solid #e8f0fe; padding-bottom: 8px; }
+
+  #cart-items { flex: 1; overflow-y: auto; }
+
+  .cart-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 6px; border-bottom: 1px solid #f0f0f0; gap: 8px;
+  }
+  .cart-row .name { flex: 1; font-size: 0.95rem; }
+  .cart-row .qty  { background: #e8f0fe; color: #1a73e8; border-radius: 12px;
+                    padding: 2px 10px; font-weight: 600; font-size: 0.9rem; }
+  .cart-row .sub  { min-width: 70px; text-align: right; font-weight: 500; }
+  .cart-row .rm   { background: none; border: none; color: #e53935; cursor: pointer;
+                    font-size: 1.1rem; padding: 2px 6px; border-radius: 4px; }
+  .cart-row .rm:hover { background: #fce4e4; }
+
+  .empty-msg { text-align: center; color: #aaa; margin-top: 40px; font-size: 0.95rem; }
+
+  .total-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 6px; border-top: 2px solid #e8f0fe;
+    font-size: 1.1rem; font-weight: 700;
+  }
+  .total-row span:last-child { color: #1a73e8; }
+
+  .btn { width: 100%; padding: 12px; border: none; border-radius: 8px;
+         font-size: 1rem; font-weight: 600; cursor: pointer; transition: opacity 0.2s; }
+  .btn:hover { opacity: 0.88; }
+  .btn-checkout { background: #1a73e8; color: white; }
+  .btn-reset    { background: #f0f2f5; color: #555; margin-top: 6px; }
+
+  #status { text-align: center; font-size: 0.85rem; color: #43a047;
+            min-height: 20px; margin-top: 4px; }
+
+  /* Variant picker modal */
+  #variant-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  #variant-overlay.active { display: flex; }
+  #variant-modal {
+    background: white; border-radius: 12px; padding: 24px;
+    min-width: 300px; max-width: 380px; width: 90%;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+  #variant-modal h3 { font-size: 1.1rem; color: #1a73e8; margin-bottom: 6px; }
+  #variant-modal p  { font-size: 0.85rem; color: #666; margin-bottom: 16px; }
+  .variant-btn {
+    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; padding: 12px 16px; margin-bottom: 8px;
+    border: 2px solid #e8f0fe; border-radius: 8px;
+    background: white; cursor: pointer; font-size: 0.95rem;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .variant-btn:hover { border-color: #1a73e8; background: #e8f0fe; }
+  .variant-btn .v-price { font-weight: 700; color: #1a73e8; }
+  .btn-dismiss {
+    width: 100%; padding: 10px; margin-top: 4px;
+    border: none; border-radius: 8px; background: #f0f2f5;
+    color: #888; cursor: pointer; font-size: 0.9rem;
+  }
+  .btn-dismiss:hover { background: #e0e0e0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🛒 Smart Grocery Checkout</h1>
+  <span>Barcode-Free · AI Powered · Patent Pending</span>
+</header>
+
+<div class="container">
+
+<!-- Variant picker modal -->
+<div id="variant-overlay">
+  <div id="variant-modal">
+    <h3 id="variant-brand">Select Variant</h3>
+    <p>Choose the size/weight for this product:</p>
+    <div id="variant-options"></div>
+    <button class="btn-dismiss" onclick="dismissPending()">✕ Skip / Not this product</button>
+  </div>
+</div>
+
+    <img src="/video_feed" alt="Camera Feed">
+  </div>
+
+  <div class="cart-panel">
+    <h2>Shopping Cart</h2>
+
+    <div id="cart-items">
+      <p class="empty-msg" id="empty-msg">Place products in front of camera...</p>
+    </div>
+
+    <div class="total-row">
+      <span>Total</span>
+      <span id="total">₹0.00</span>
+    </div>
+
+    <div id="qr-section" style="display:none; text-align:center; margin: 4px 0;">
+      <p style="font-size:0.8rem; color:#555; margin-bottom:4px;">📱 Scan to Pay via UPI</p>
+      <img id="qr-img" src="" alt="UPI QR" style="width:120px; height:120px; border:1px solid #e0e0e0; border-radius:6px;">
+    </div>
+
+    <button class="btn btn-checkout" onclick="checkout()">✅ Checkout &amp; Generate Bill</button>
+    <button class="btn btn-reset"    onclick="resetCart()">🔄 New Customer</button>
+    <div id="status"></div>
+  </div>
+</div>
+
+<script>
+function setStatus(msg, color='#43a047') {
+  const s = document.getElementById('status');
+  s.style.color = color;
+  s.textContent = msg;
+  setTimeout(() => s.textContent = '', 3000);
+}
+
+function renderCart(data) {
+  const container = document.getElementById('cart-items');
+  const emptyMsg  = document.getElementById('empty-msg');
+  const qrSection = document.getElementById('qr-section');
+  const qrImg     = document.getElementById('qr-img');
+  document.getElementById('total').textContent = '₹' + data.total.toFixed(2);
+
+  if (!data.items.length) {
+    container.innerHTML = '';
+    container.appendChild(emptyMsg);
+    emptyMsg.style.display = 'block';
+    qrSection.style.display = 'none';
+    return;
+  }
+  emptyMsg.style.display = 'none';
+  qrSection.style.display = 'block';
+  qrImg.src = '/qr?t=' + Date.now();  // cache-bust
+
+  container.innerHTML = data.items.map(item => `
+    <div class="cart-row">
+      <span class="name">${item.name}</span>
+      <span class="qty">×${item.qty}</span>
+      <span class="sub">₹${item.subtotal.toFixed(2)}</span>
+      <button class="rm" onclick="removeItem('${item.name}')" title="Remove one">✕</button>
+    </div>
+  `).join('');
+}
+
+async function pollCart() {
+  try {
+    const res  = await fetch('/cart');
+    const data = await res.json();
+    renderCart(data);
+  } catch(e) {}
+}
+
+async function removeItem(label) {
+  await fetch('/remove', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({label})
+  });
+  pollCart();
+}
+
+async function checkout() {
+  const res  = await fetch('/checkout', {method: 'POST'});
+  const data = await res.json();
+  if (data.error) { setStatus(data.error, '#e53935'); return; }
+  setStatus('Bill generated! Downloading invoice...', '#1a73e8');
+  window.location.href = '/download_invoice';
+  pollCart();
+}
+
+async function resetCart() {
+  await fetch('/reset', {method: 'POST'});
+  setStatus('Cart cleared — ready for next customer.');
+  pollCart();
+}
+
+// Poll cart every second
+setInterval(pollCart, 1000);
+pollCart();
+
+// ── Variant picker ────────────────────────────────────────────────────────────
+let _pickerOpen = false;
+
+async function pollPending() {
+  if (_pickerOpen) return;   // don't stack popups
+  try {
+    const res  = await fetch('/pending');
+    const data = await res.json();
+    if (data.brand) showVariantPicker(data.brand);
+  } catch(e) {}
+}
+
+async function showVariantPicker(brand) {
+  _pickerOpen = true;
+  document.getElementById('variant-brand').textContent = '📦 ' + brand;
+  document.getElementById('variant-options').innerHTML = '<p style="color:#aaa">Loading…</p>';
+  document.getElementById('variant-overlay').classList.add('active');
+
+  const res      = await fetch('/variants?brand=' + encodeURIComponent(brand));
+  const variants = await res.json();
+
+  if (!variants.length) {
+    // No variants defined — add brand directly and dismiss
+    await dismissPending();
+    return;
+  }
+
+  document.getElementById('variant-options').innerHTML = variants.map(v => `
+    <button class="variant-btn" onclick="pickVariant('${v.label}', ${v.price})">
+      <span>${v.label}</span>
+      <span class="v-price">₹${v.price}</span>
+    </button>
+  `).join('');
+}
+
+async function pickVariant(label, price) {
+  await fetch('/add_to_cart', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({label, price})
+  });
+  closeVariantPicker();
+  pollCart();
+}
+
+async function dismissPending() {
+  await fetch('/dismiss_pending', {method: 'POST'});
+  closeVariantPicker();
+}
+
+function closeVariantPicker() {
+  document.getElementById('variant-overlay').classList.remove('active');
+  _pickerOpen = false;
+}
+
+setInterval(pollPending, 1200);
+</script>
+</body>
+</html>

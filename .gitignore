@@ -1,0 +1,7 @@
+*.pt
+*.pth
+store.db
+invoice_*.pdf
+__pycache__/
+*.pyc
+.DS_Store

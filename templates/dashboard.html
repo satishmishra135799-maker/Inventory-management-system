@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Store Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #222; }
+
+  header { background: #1a73e8; color: white; padding: 14px 24px;
+           display: flex; justify-content: space-between; align-items: center; }
+  header h1 { font-size: 1.2rem; }
+  header a  { color: white; font-size: 0.85rem; text-decoration: none;
+              background: rgba(255,255,255,0.2); padding: 6px 14px; border-radius: 6px; }
+
+  .page { padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+
+  .row { display: flex; gap: 20px; flex-wrap: wrap; }
+
+  .card { background: white; border-radius: 10px; padding: 20px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.07); flex: 1; min-width: 280px; }
+  .card h2 { font-size: 1rem; color: #1a73e8; margin-bottom: 14px;
+             border-bottom: 2px solid #e8f0fe; padding-bottom: 8px; }
+
+  /* KPI tiles */
+  .kpi-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .kpi { background: white; border-radius: 10px; padding: 18px 24px; flex: 1;
+         min-width: 160px; box-shadow: 0 2px 8px rgba(0,0,0,0.07); text-align: center; }
+  .kpi .val { font-size: 1.8rem; font-weight: 700; color: #1a73e8; }
+  .kpi .lbl { font-size: 0.8rem; color: #888; margin-top: 4px; }
+
+  /* Products table */
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th { background: #e8f0fe; color: #1a73e8; padding: 8px 10px; text-align: left; }
+  td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; }
+  tr:hover td { background: #fafafa; }
+  .low-stock { color: #e53935; font-weight: 600; }
+
+  /* Form */
+  .form-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .form-row input { flex: 1; min-width: 100px; padding: 8px 10px;
+                    border: 1px solid #ddd; border-radius: 6px; font-size: 0.9rem; }
+  .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer;
+         font-size: 0.9rem; font-weight: 600; }
+  .btn-blue  { background: #1a73e8; color: white; }
+  .btn-red   { background: #e53935; color: white; }
+  .btn-blue:hover { opacity: 0.88; }
+  .btn-red:hover  { opacity: 0.88; }
+
+  #form-status { font-size: 0.82rem; color: #43a047; margin-top: 6px; min-height: 18px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📊 Store Owner Dashboard</h1>
+  <a href="/">← Back to Checkout</a>
+</header>
+
+<div class="page">
+
+  <!-- KPIs -->
+  <div class="kpi-row" id="kpis">
+    <div class="kpi"><div class="val" id="kpi-revenue">—</div><div class="lbl">Revenue (7 days)</div></div>
+    <div class="kpi"><div class="val" id="kpi-txns">—</div><div class="lbl">Items Sold (7 days)</div></div>
+    <div class="kpi"><div class="val" id="kpi-products">—</div><div class="lbl">Products</div></div>
+    <div class="kpi"><div class="val" id="kpi-lowstock">—</div><div class="lbl">Low Stock Alerts</div></div>
+  </div>
+
+  <div class="row">
+    <!-- Revenue chart -->
+    <div class="card" style="flex:1.5">
+      <h2>Daily Revenue (Last 7 Days)</h2>
+      <canvas id="revenueChart" height="120"></canvas>
+    </div>
+
+    <!-- Top products chart -->
+    <div class="card" style="flex:1">
+      <h2>Top Products by Revenue</h2>
+      <canvas id="productChart" height="120"></canvas>
+    </div>
+  </div>
+
+  <!-- Products management -->
+  <div class="card">
+    <h2>Product Management</h2>
+    <table id="products-table">
+      <thead><tr><th>Product</th><th>Price (₹)</th><th>Stock</th><th>Action</th></tr></thead>
+      <tbody id="products-body"></tbody>
+    </table>
+
+    <div class="form-row" style="margin-top:16px;">
+      <input id="f-name"  placeholder="Product name" />
+      <input id="f-price" placeholder="Price (₹)" type="number" min="0" />
+      <input id="f-stock" placeholder="Stock qty"  type="number" min="0" />
+      <button class="btn btn-blue" onclick="saveProduct()">Save / Update</button>
+    </div>
+    <div id="form-status"></div>
+  </div>
+
+  <!-- Sales table -->
+  <div class="card">
+    <h2>Sales Summary (Last 7 Days)</h2>
+    <table>
+      <thead><tr><th>Product</th><th>Units Sold</th><th>Revenue (₹)</th></tr></thead>
+      <tbody id="sales-body"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+async function loadKPIs() {
+  const [sales, products, revenue] = await Promise.all([
+    fetch('/dashboard/sales?days=7').then(r => r.json()),
+    fetch('/dashboard/products').then(r => r.json()),
+    fetch('/dashboard/revenue?days=7').then(r => r.json()),
+  ]);
+
+  const totalRev  = sales.reduce((s, r) => s + r.revenue, 0);
+  const totalQty  = sales.reduce((s, r) => s + r.total_qty, 0);
+  const lowStock  = products.filter(p => p.stock < 10).length;
+
+  document.getElementById('kpi-revenue').textContent  = '₹' + totalRev.toFixed(0);
+  document.getElementById('kpi-txns').textContent     = totalQty;
+  document.getElementById('kpi-products').textContent = products.length;
+  document.getElementById('kpi-lowstock').textContent = lowStock;
+
+  // Revenue chart
+  new Chart(document.getElementById('revenueChart'), {
+    type: 'bar',
+    data: {
+      labels: revenue.map(r => r.day),
+      datasets: [{ label: 'Revenue (₹)', data: revenue.map(r => r.revenue),
+                   backgroundColor: '#1a73e8', borderRadius: 4 }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+
+  // Top products chart
+  const top5 = sales.slice(0, 5);
+  new Chart(document.getElementById('productChart'), {
+    type: 'doughnut',
+    data: {
+      labels: top5.map(r => r.product),
+      datasets: [{ data: top5.map(r => r.revenue),
+                   backgroundColor: ['#1a73e8','#34a853','#fbbc04','#ea4335','#9c27b0'] }]
+    },
+    options: { plugins: { legend: { position: 'bottom' } } }
+  });
+
+  // Sales table
+  document.getElementById('sales-body').innerHTML = sales.map(r => `
+    <tr><td>${r.product}</td><td>${r.total_qty}</td><td>₹${r.revenue.toFixed(2)}</td></tr>
+  `).join('') || '<tr><td colspan="3" style="color:#aaa;text-align:center">No sales yet</td></tr>';
+}
+
+async function loadProducts() {
+  const products = await fetch('/dashboard/products').then(r => r.json());
+  document.getElementById('products-body').innerHTML = products.map(p => `
+    <tr>
+      <td>${p.name}</td>
+      <td>₹${p.price}</td>
+      <td class="${p.stock < 10 ? 'low-stock' : ''}">${p.stock}${p.stock < 10 ? ' ⚠️' : ''}</td>
+      <td>
+        <button class="btn btn-blue" style="padding:4px 10px;font-size:0.8rem"
+          onclick="editProduct('${p.name}',${p.price},${p.stock})">Edit</button>
+        <button class="btn btn-red"  style="padding:4px 10px;font-size:0.8rem;margin-left:4px"
+          onclick="deleteProduct('${p.name}')">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function editProduct(name, price, stock) {
+  document.getElementById('f-name').value  = name;
+  document.getElementById('f-price').value = price;
+  document.getElementById('f-stock').value = stock;
+}
+
+async function saveProduct() {
+  const name  = document.getElementById('f-name').value.trim();
+  const price = parseFloat(document.getElementById('f-price').value);
+  const stock = parseInt(document.getElementById('f-stock').value);
+  if (!name || isNaN(price) || isNaN(stock)) {
+    document.getElementById('form-status').textContent = 'Fill all fields.';
+    return;
+  }
+  await fetch('/dashboard/products', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name, price, stock})
+  });
+  document.getElementById('form-status').textContent = `✅ ${name} saved.`;
+  document.getElementById('f-name').value = document.getElementById('f-price').value
+    = document.getElementById('f-stock').value = '';
+  loadProducts();
+}
+
+async function deleteProduct(name) {
+  if (!confirm(`Delete "${name}"?`)) return;
+  await fetch('/dashboard/products/delete', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({name})
+  });
+  loadProducts();
+}
+
+loadKPIs();
+loadProducts();
+</script>
+</body>
+</html>
